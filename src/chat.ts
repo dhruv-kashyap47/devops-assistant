@@ -26,18 +26,21 @@ const read_terminal = createInterface({
 
 async function askAI(messages: Message[]) {
   const stream = client.chat.completions.stream({
+    // client = sdk ka main connection/object, .chat = sdk ke ander chat related api/functionality, .completions = Mujhe conversation dekar model se response generate karwana hai, .stream = Response ko ek saath mat do. Stream karo
     model: "openrouter/free",
-    messages, //shorthand for messages: messages,
+    messages, //shorthand for messages: messages can be written only messages, because dono key and value same hai
   });
 
   let fullReply = "";
 
   stream.on("content", (delta) => {
+    // stream event listner, content is predefined event name
     process.stdout.write(delta);
-    fullReply += delta;
+    fullReply = fullReply + delta; // delta is a callback parameter, jo chote-chote pieces aa rahe hai unhe delta naam se bulao aur sath me hie chunks ko fullReply me jodte raho
   });
+  // content = event ka naam , delta = Us event ke saath aane wala actual new text
 
-  await stream.finalChatCompletion();
+  await stream.finalChatCompletion(); // wait till streaming ends and provide the final full reply
 
   return fullReply;
 }
@@ -46,7 +49,7 @@ async function chatLoop() {
   console.log("Chat started. Type 'exit' to quit.\n");
 
   while (true) {
-    const userInput = await read_terminal.question("You: ");
+    const userInput = await read_terminal.question("💁 ~ ");
 
     if (userInput.trim().toLowerCase() === "exit") {
       console.log("Thank you! Visit Us Again :)");
