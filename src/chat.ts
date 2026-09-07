@@ -20,8 +20,9 @@ const messages_memory: Message[] = [
 ];
 
 const read_terminal = createInterface({
-  input: process.stdin,
-  output: process.stdout,
+  // this is a readline interface that allows us to read user input from the terminal
+  input: process.stdin, // input stream from the terminal
+  output: process.stdout, // output stream to the terminal
 });
 
 async function askAI(messages: Message[]) {
@@ -31,7 +32,7 @@ async function askAI(messages: Message[]) {
     messages, //shorthand for messages: messages can be written only messages, because dono key and value same hai
   });
 
-  let fullReply = "";
+  let fullReply = ""; // this variable will hold the complete response from the AI model
 
   stream.on("content", (delta) => {
     // stream event listner, content is predefined event name
