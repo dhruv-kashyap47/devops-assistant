@@ -67,7 +67,7 @@ async function chatLoop() {
 
     const fullReply = await askAI(messages_memory);
 
-    process.stdout.write("\n\n");
+    process.stdout.write("\n\n"); // Add a newline after the AI's response for better readability
 
     messages_memory.push({
       role: "assistant",
