@@ -28,7 +28,7 @@ const read_terminal = createInterface({
 async function askAI(messages: Message[]) {
   const stream = client.chat.completions.stream({
     // client = sdk ka main connection/object, .chat = sdk ke ander chat related api/functionality, .completions = Mujhe conversation dekar model se response generate karwana hai, .stream = Response ko ek saath mat do. Stream karo
-    model: "minimax/minimax-m3:free",
+    model: "thinkingmachines/inkling:free",
     messages, //shorthand for messages: messages can be written only messages, because dono key and value same hai
   });
 

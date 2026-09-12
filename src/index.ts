@@ -9,7 +9,7 @@ const client = new OpenAI({
 
 async function main() {
   const response = await client.chat.completions.create({
-    model: "minimax/minimax-m3:free",
+    model: "thinkingmachines/inkling:free",
     messages: [
       {
         role: "user",
