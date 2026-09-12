@@ -20,24 +20,23 @@ const messages_memory: Message[] = [
 ];
 
 const read_terminal = createInterface({
-  // this is a readline interface that allows us to read user input from the terminal
-  input: process.stdin, // input stream from the terminal
-  output: process.stdout, // output stream to the terminal
+
+  input: process.stdin,
+  output: process.stdout,
 });
 
 async function askAI(messages: Message[]) {
   const stream = client.chat.completions.stream({
-    // client = sdk ka main connection/object, .chat = sdk ke ander chat related api/functionality, .completions = Mujhe conversation dekar model se response generate karwana hai, .stream = Response ko ek saath mat do. Stream karo
-    model: "thinkingmachines/inkling:free",
-    messages, //shorthand for messages: messages can be written only messages, because dono key and value same hai
+    model: "nvidia/nemotron-3-ultra-550b-a55b:free",
+    messages,
   });
 
-  let fullReply = ""; // this variable will hold the complete response from the AI model
+  let fullReply = "";
 
   stream.on("content", (delta) => {
     // stream event listner, content is predefined event name
     process.stdout.write(delta);
-    fullReply = fullReply + delta; // delta is a callback parameter, jo chote-chote pieces aa rahe hai unhe delta naam se bulao aur sath me hie chunks ko fullReply me jodte raho
+    fullReply = fullReply + delta; // delta is a callback parameter
   });
   // content = event ka naam , delta = Us event ke saath aane wala actual new text
 
