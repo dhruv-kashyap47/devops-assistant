@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { createInterface } from "node:readline/promises";
 import OpenAI from "openai";
+import { calculate, get_weather, tools } from "./tools.js";
 
 const client = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -8,41 +9,91 @@ const client = new OpenAI({
 });
 
 type Message = {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  tool_calls?: any;
+  tool_call_id?: string;
+  name?: string;
 };
 
 const messages_memory: Message[] = [
-  {
-    role: "system",
-    content: "You are a concise, helpful assistant.",
-  },
+  { role: "system", content: "You are a concise, helpful assistant." },
 ];
 
 const read_terminal = createInterface({
-
   input: process.stdin,
   output: process.stdout,
 });
 
-async function askAI(messages: Message[]) {
-  const stream = client.chat.completions.stream({
-    model: "nvidia/nemotron-3-ultra-550b-a55b:free",
-    messages,
+// Connect tool names from the model to the actual functions.
+const toolFunctions: Record<
+  string,
+  (...args: any[]) => Promise<string> | string
+> = {
+  get_weather,
+  calculate,
+};
+
+async function askAI(messages: Message[]): Promise<string> {
+  // Send the conversation and available tools to the model.
+  const response = await client.chat.completions.create({
+    model: "nvidia/nemotron-3-super-120b-a12b:free",
+    messages: messages as any,
+    tools: tools,
   });
 
-  let fullReply = "";
+  const responseMessage = response.choices[0].message;
+  const toolCalls = responseMessage.tool_calls;
 
-  stream.on("content", (delta) => {
-    // stream event listner, content is predefined event name
-    process.stdout.write(delta);
-    fullReply = fullReply + delta; // delta is a callback parameter
+  // If no tool is needed, return the model's normal response.
+  if (!toolCalls || toolCalls.length === 0) {
+    const reply = responseMessage.content ?? "(no reply)";
+    messages.push({ role: "assistant", content: reply });
+    return reply;
+  }
+
+  // Save the model's tool request in conversation history.
+  messages.push({
+    role: "assistant",
+    content: responseMessage.content ?? "",
+    tool_calls: toolCalls,
   });
-  // content = event ka naam , delta = Us event ke saath aane wala actual new text
 
-  await stream.finalChatCompletion(); // wait till streaming ends and provide the final full reply
+  // Run every tool requested by the model.
+  for (const call of toolCalls) {
+    const fnName = call.function.name;
 
-  return fullReply;
+    // Tool arguments come as a JSON string, so convert them into an object.
+    const fnArgs = JSON.parse(call.function.arguments);
+
+    console.log(`\n🦾 Calling tool ~ ${fnName}(${JSON.stringify(fnArgs)})`);
+
+    // Find the actual function using the tool name.
+    const fn = toolFunctions[fnName];
+
+    let result: string;
+
+    if (!fn) {
+      result = `Unknown tool: ${fnName}`;
+    } else {
+      // Get the argument and pass it to the actual tool function.
+      const arg = Object.values(fnArgs)[0];
+      result = await fn(arg as any);
+    }
+
+    console.log(`🌐 Tool result ~ ${result}\n`);
+
+    // Send the tool result back to the model.
+    messages.push({
+      role: "tool",
+      tool_call_id: call.id,
+      name: fnName,
+      content: result,
+    });
+  }
+
+  // Ask the model again so it can use the tool results to answer the user.
+  return askAI(messages);
 }
 
 async function chatLoop() {
@@ -57,21 +108,16 @@ async function chatLoop() {
       break;
     }
 
+    // Add the user's message to conversation history.
     messages_memory.push({
       role: "user",
       content: userInput,
     });
 
-    process.stdout.write("🤖 ~ ");
-
+    // Send the conversation to the model.
     const fullReply = await askAI(messages_memory);
 
-    process.stdout.write("\n\n"); // Add a newline after the AI's response for better readability
-
-    messages_memory.push({
-      role: "assistant",
-      content: fullReply,
-    });
+    console.log(`🤖 ~ ${fullReply}\n`);
   }
 }
 
