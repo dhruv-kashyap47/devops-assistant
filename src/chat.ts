@@ -106,7 +106,7 @@ async function chatLoop() {
   console.log("Chat started. Type 'exit' to quit.\n");
 
   while (true) {
-    const userInput = await read_terminal.question("🧑‍💻 ~ ");
+    const userInput = await read_terminal.question("🦍 ~ ");
 
     if (userInput.trim().toLowerCase() === "exit") {
       console.log("Thank you! Visit Us Again :)");
