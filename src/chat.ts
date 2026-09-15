@@ -49,7 +49,16 @@ async function askAI(messages: Message[]): Promise<string> {
     messages.push({ role: "assistant", content: reply });
     return reply;
   }
+
+  messages.push({
+    role: "assistant",
+    content: responseMessage.content ?? "",
+    tool_calls: toolCalls
+  });
+
   
+
+
 
 
 
