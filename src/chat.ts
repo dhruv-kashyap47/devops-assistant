@@ -33,11 +33,7 @@ const read_terminal = createInterface({
 });
 
 // Connect tool names from the model to the actual functions.
-const toolFunctions: Record<
-  string,
-  (...args: any[]) => Promise<string> | string
-> = {
-  // Map tool names to their corresponding functions
+const toolFunctions: Record<string,(...args: any[]) => Promise<string> | string> = { // Map tool names to their corresponding functions
   get_weather,
   calculate,
   // since the name of the function is the same as the name of the tool, we can use a computed property name to create the mapping
