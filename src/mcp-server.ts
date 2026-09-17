@@ -8,6 +8,10 @@ const mcp_server = new McpServer({
     version: "1.0.0",
 });
 
+/*
+Register tools with the MCP server. Each tool has a name, description, input schema, and a handler function that implements the tool's functionality.
+*/
+
 mcp_server.tool(
     "get_weather",
     "Get the current realtime weather for a given city",
@@ -18,7 +22,7 @@ mcp_server.tool(
         const result = await get_weather(city);
 
         return {
-            content: [{ type: "text", text: result }],
+            content: [{ type: "text", text: result }], // Return the result as a text message in the MCP response format.
         };
     }
 );
@@ -37,6 +41,10 @@ mcp_server.tool(
     };
   }
 );
+
+/*
+connect the MCP server to the standard input/output streams, allowing it to communicate with a client over the console. This is useful for testing and development purposes.
+*/
 
 async function main() {
     const transport = new StdioServerTransport();
