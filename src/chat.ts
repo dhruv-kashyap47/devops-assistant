@@ -59,9 +59,7 @@ async function connectToMcpServer() {
   }));
 
   console.log(
-    `Connected to MCP server. Available tools: ${tool_list.tools
-      .map((tool) => tool.name)
-      .join(", ")}\n`,
+    `Connected to MCP server. Available tools: ${tool_list.tools.map((tool) => tool.name).join(", ")}\n`,
   );
 }
 
