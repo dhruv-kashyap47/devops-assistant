@@ -42,14 +42,14 @@ const mcp_client = new Client({
 });
 
 // Tools discovered from MCP server
-let toolsForAgent: any[] = [];
+let toolsForAgent: any[] = []; // this will hold the tools discovered from the MCP server
 
 async function connectToMcpServer() {
   await mcp_client.connect(transport);
 
-  const tool_list = await mcp_client.listTools();
+  const tool_list = await mcp_client.listTools(); // Get the list of tools from the MCP server
 
-  toolsForAgent = tool_list.tools.map((tool) => ({
+  toolsForAgent = tool_list.tools.map((tool) => ({ // Convert the tool to the format expected by the OpenAI API
     type: "function" as const,
     function: {
       name: tool.name,
@@ -63,23 +63,24 @@ async function connectToMcpServer() {
   );
 }
 
-async function askAI(messages: Message[]): Promise<string> {
+async function askAI(messages: Message[]): Promise<string> { // Function to ask the AI model for a response
   try {
-    const response = await client.chat.completions.create({
+    const response = await client.chat.completions.create({ // Create a chat completion request to the OpenAI API
       model: "nvidia/nemotron-3-super-120b-a12b:free",
       messages: messages as any,
       tools: toolsForAgent,
+      // we send messages and tools to the model, and it will decide if it needs to call a tool or just respond directly
     });
 
-    const choice = response.choices?.[0];
+    const choice = response.choices?.[0]; // Get the first choice from the response
 
     if (!choice) {
       console.error("\n❌ No choices returned.");
       return "The model returned no response.";
     }
 
-    const responseMessage = choice.message;
-    const toolCalls = responseMessage.tool_calls;
+    const responseMessage = choice.message; // Get the message from the choice
+    const toolCalls = responseMessage.tool_calls; // Get any tool calls from the message
 
     if (!toolCalls || toolCalls.length === 0) {
       const reply = responseMessage.content ?? "(no reply)";
