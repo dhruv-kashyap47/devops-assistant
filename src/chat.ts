@@ -1,7 +1,8 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import "dotenv/config";
 import { createInterface } from "node:readline/promises";
 import OpenAI from "openai";
-import { calculate, get_weather, tools } from "./tools.js";
 
 const client = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -11,20 +12,16 @@ const client = new OpenAI({
 type Message = {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
-  tool_calls?: any; // Tool calls made by the model (only for assistant messages)
-  tool_call_id?: string; // ID of the tool call that produced this message (only for tool messages)
-  name?: string; // Name of the tool that produced this message (only for tool messages)
+  tool_calls?: any;
+  tool_call_id?: string;
+  name?: string;
 };
 
-/*
-system = The system message sets the behavior of the assistant. It is usually a single message at the start of the conversation.
-user = The user message is the input from the user. It can be multiple messages in a conversation.
-assistant = The assistant message is the output from the model. It can be multiple messages in a conversation.
-tool = The tool message is the output from a tool that was called by the model. It can be multiple messages in a conversation.
-*/
-
 const messages_memory: Message[] = [
-  { role: "system", content: "You are a concise, helpful assistant." },
+  {
+    role: "system",
+    content: "You are a concise, helpful assistant.",
+  },
 ];
 
 const read_terminal = createInterface({
@@ -32,73 +29,114 @@ const read_terminal = createInterface({
   output: process.stdout,
 });
 
-// Connect tool names from the model to the actual functions.
-const toolFunctions: Record<string,(...args: any[]) => Promise<string> | string> = { // Map tool names to their corresponding functions
-  get_weather,
-  calculate,
-  // since the name of the function is the same as the name of the tool, we can use a computed property name to create the mapping
-};
+// MCP transport
+const transport = new StdioClientTransport({
+  command: "npx",
+  args: ["tsx", "src/mcp-server.ts"],
+});
+
+// MCP client
+const mcp_client = new Client({
+  name: "devops-chat-client",
+  version: "1.0.0",
+});
+
+// Tools discovered from MCP server
+let toolsForAgent: any[] = [];
+
+async function connectToMcpServer() {
+  await mcp_client.connect(transport);
+
+  const tool_list = await mcp_client.listTools();
+
+  toolsForAgent = tool_list.tools.map((tool) => ({
+    type: "function" as const,
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema,
+    },
+  }));
+
+  console.log(
+    `Connected to MCP server. Available tools: ${tool_list.tools
+      .map((tool) => tool.name)
+      .join(", ")}\n`,
+  );
+}
 
 async function askAI(messages: Message[]): Promise<string> {
-  // Send the conversation and available tools to the model.
-  const response = await client.chat.completions.create({
-    model: "nvidia/nemotron-3-super-120b-a12b:free",
-    messages: messages as any,
-    tools: tools, // Pass the tools to the model so it can use them, imported from tools.ts
-  });
+  try {
+    const response = await client.chat.completions.create({
+      model: "nvidia/nemotron-3-super-120b-a12b:free",
+      messages: messages as any,
+      tools: toolsForAgent,
+    });
 
-  const responseMessage = response.choices[0].message;
-  const toolCalls = responseMessage.tool_calls;
+    const choice = response.choices?.[0];
 
-  // If no tool is needed, return the model's normal response.
-  if (!toolCalls || toolCalls.length === 0) {
-    const reply = responseMessage.content ?? "(no reply)"; // .content basically contains the model's text response
-    messages.push({ role: "assistant", content: reply });
-    return reply;
-  }
-
-  // Save the model's tool request in conversation history, if any tool calls were made.
-  messages.push({
-    role: "assistant",
-    content: responseMessage.content ?? "",
-    tool_calls: toolCalls,
-  });
-
-  // Run every tool requested by the model.
-  for (const call of toolCalls) {
-    const fnName = call.function.name; // Get the name of the tool function requested by the model.
-    const fnArgs = JSON.parse(call.function.arguments); // Get the arguments for the tool function requested by the model, which are passed as a JSON string, so we need to parse it into an object.
-
-    console.log(`\n🪐 Calling tool: ${fnName}(${JSON.stringify(fnArgs)})`);
-
-    const fn = toolFunctions[fnName]; // Get the actual function to call based on the tool name requested by the model.
-
-    let result: string;
-
-    if (!fn) {
-      // If the tool name is not found in the mapping, return an error message.
-      result = `Unknown tool: ${fnName}`;
-    } else {
-      const arg = Object.values(fnArgs)[0]; // Get the first argument value from the parsed arguments object. This assumes that the tool function takes a single argument, which is the case for both get_weather and calculate.
-      result = await fn(arg as any); // Call the tool function with the argument and await its result. The result is expected to be a string, as both get_weather and calculate return strings.
+    if (!choice) {
+      console.error("\n❌ No choices returned.");
+      return "The model returned no response.";
     }
 
-    console.log(`✅ Tool result: ${result}\n`);
+    const responseMessage = choice.message;
+    const toolCalls = responseMessage.tool_calls;
 
-    // Send the tool result back to the model.
+    if (!toolCalls || toolCalls.length === 0) {
+      const reply = responseMessage.content ?? "(no reply)";
+
+      messages.push({
+        role: "assistant",
+        content: reply,
+      });
+
+      return reply;
+    }
+
     messages.push({
-      role: "tool",
-      tool_call_id: call.id,
-      name: fnName,
-      content: result,
+      role: "assistant",
+      content: responseMessage.content ?? "",
+      tool_calls: toolCalls,
     });
-  }
 
-  // Ask the model again so it can use the tool results to answer the user.
-  return askAI(messages);
+    for (const call of toolCalls) {
+      const fnName = call.function.name;
+      const fnArgs = JSON.parse(call.function.arguments);
+
+      console.log(`\n🔧 MCP tool: ${fnName}(${JSON.stringify(fnArgs)})`);
+
+      const result = await mcp_client.callTool({
+        name: fnName,
+        arguments: fnArgs,
+      });
+
+      const resultText =
+        (result.content as any[])?.map((content) => content.text).join("\n") ??
+        "No result";
+
+      console.log(`✅ Tool result: ${resultText}\n`);
+
+      messages.push({
+        role: "tool",
+        tool_call_id: call.id,
+        name: fnName,
+        content: resultText,
+      });
+    }
+
+    return askAI(messages);
+  } catch (error) {
+    console.error("\n❌ AI ERROR:");
+    console.error(error);
+
+    return "Something went wrong while processing your request.";
+  }
 }
 
 async function chatLoop() {
+  await connectToMcpServer();
+
   console.log("Chat started. Type 'exit' to quit.\n");
 
   while (true) {
@@ -110,13 +148,11 @@ async function chatLoop() {
       break;
     }
 
-    // Add the user's message to conversation history.
     messages_memory.push({
       role: "user",
       content: userInput,
     });
 
-    // Send the conversation to the model.
     const fullReply = await askAI(messages_memory);
 
     console.log(`🤖 ~ ${fullReply}\n`);
