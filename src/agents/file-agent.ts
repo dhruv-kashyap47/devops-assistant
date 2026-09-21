@@ -4,6 +4,7 @@ import OpenAI from "openai";
 import fs from "node:fs/promises";
 import path from "node:path";
 import mini = require("zod/mini");
+import required = require("zod/mini");
 
 const client = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -60,29 +61,53 @@ async function write_file(filename: string, content: string): Promise<string> {
 
 
 const tools = [
-    {
-        type: "function" as const,
-        function: {
-            name: "list_files",
-            description: "List all files currently in the workspace.",
-            parameters: { type: "object", properties: {}, required:[]},
-        },
+  {
+    type: "function" as const,
+    function: {
+      name: "list_files",
+      description: "List all files currently in the workspace.",
+      parameters: { type: "object", properties: {}, required: [] },
     },
+  },
 
-    {
-        type: "function" as const,
-        function: {
-            name: "read_file",
-            description: "Read the full text xontents of a file in the workspace.",
-            parameters: {
-                type: "object",
-                properties: {
-                    filename: { type: "string", description: "The file name, e.g. 'notes.txt'."},
-                },
-                required: ["filename"],
+  {
+    type: "function" as const,
+    function: {
+      name: "read_file",
+      description: "Read the full text xontents of a file in the workspace.",
+      parameters: {
+        type: "object",
+        properties: {
+          filename: {
+            type: "string",
+            description: "The file name, e.g. 'notes.txt'.",
+          },
+        },
+        required: ["filename"],
+      },
+    },
+  },
+
+  {
+    type: "function" as const,
+    function: {
+      name: "write_file",
+      description:
+        "Create or overwrite a file in the workspace with given text content",
+      parameters: {
+        type: "object",
+        properties: {
+          filename: {
+            type: "string",
+            description: "The file name to write, e.g. 'summary.txt'.",
+            content: {
+              type: "string",
+              description: "The full text content to write into the file.",
             },
+          },
         },
+        required: ["filename", "content"],
+      },
     },
-
-    {}
-]
+  },
+];
