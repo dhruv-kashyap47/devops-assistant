@@ -3,8 +3,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import OpenAI from "openai";
-import mini = require("zod/mini");
-import required = require("zod/mini");
 
 const client = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
