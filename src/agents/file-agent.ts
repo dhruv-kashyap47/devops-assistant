@@ -9,7 +9,7 @@ const client = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
 });
 
-const WORKSPACE_DIR = path.resolve("workspace");
+const WORKSPACE_DIR = path.resolve("workspace"); // Ensure this is an absolute path
 
 type Message = {
   role: "system" | "user" | "assistant" | "tool";
@@ -19,7 +19,7 @@ type Message = {
   name?: string;
 };
 
-function resolveSafePath(userPath: string): string {
+function resolveSafePath(userPath: string): string { // Ensure the path is resolved within the workspace
   const target = path.resolve(WORKSPACE_DIR, userPath);
 
   if (!target.startsWith(WORKSPACE_DIR)) {
@@ -109,10 +109,10 @@ const tools = [
   },
 ];
 
-const toolFunctions: Record<string, (args: any) => Promise<string>> = {
-  list_files: async () => list_files(),
-  read_file: async (args) => read_file(args.filename),
-  write_file: async (args) => write_file(args.filename, args.content),
+const toolFunctions: Record<string, (args: any) => Promise<string>> = { // Map tool names to their corresponding functions
+  list_files: async () => list_files(), // This is a function that calls the list_files function and returns its result
+  read_file: async (args) => read_file(args.filename), // This is a function that calls the read_file function with the filename argument and returns its result
+  write_file: async (args) => write_file(args.filename, args.content), // This is a function that calls the write_file function with the filename and content arguments and returns its result
 };
 
 async function runFileAgent(goal: string): Promise<string> {
@@ -143,18 +143,18 @@ async function runFileAgent(goal: string): Promise<string> {
 
     const msg = response.choices[0]?.message;
 
-    if (!msg?.tool_calls || msg.tool_calls.length === 0) {
+    if (!msg?.tool_calls || msg.tool_calls.length === 0) { // If there are no tool calls, the agent has finished its task
       console.log("\n✅ Agent finished.\n");
       return msg?.content ?? "(no final answer produced)";
     }
 
-    messages.push({
+    messages.push({ // Add the agent's response to the messages array, including any tool calls it made
       role: "assistant",
       content: msg.content ?? "",
       tool_calls: msg.tool_calls,
     });
 
-    for (const call of msg.tool_calls) {
+    for (const call of msg.tool_calls) { // For each tool call, extract the function name and arguments, then execute the corresponding function
       const fnName = call.function.name;
       const args = JSON.parse(call.function.arguments);
 
@@ -162,22 +162,25 @@ async function runFileAgent(goal: string): Promise<string> {
 
       const fn = toolFunctions[fnName];
 
-      const result = fn ? await fn(args) : `Unknown tool: ${fnName}`; //ternary operator
+      const result = fn ? await fn(args) : `Unknown tool: ${fnName}`; //This is a ternary operator that checks if the function exists in the toolFunctions object. If it does, it calls the function with the provided arguments and awaits its result. If it doesn't, it returns a string indicating that the tool is unknown.
 
       console.log(
         `✅ Result: ${result.slice(0, 200)}${result.length > 200 ? "..." : ""}\n`,
       );
 
-      messages.push({
+      messages.push({ // Add the result of the tool call to the messages array, so the agent can see it in the next step
         role: "tool",
         tool_call_id: call.id,
         name: fnName,
         content: result,
       });
     }
+    /*
+    Keep in mind that we push two times one as assistant and one as tool, this is because the assistant is the one that calls the tool and the tool is the one that returns the result, so we need to keep track of both. The assistant message will have the tool_calls property, while the tool message will have the tool_call_id property. This way we can match the tool call with its result in the next step. We push assistant first because we want the assistant to see its own message in the next step, so it can decide what to do next based on the result of the tool call. The tool message is pushed second because we want the assistant to see the result of the tool call in the next step, so it can decide what to do next based on the result of the tool call.
+    */
   }
 
-  const finalResponse = await client.chat.completions.create({
+  const finalResponse = await client.chat.completions.create({ // After reaching the maximum number of steps, we ask the agent to give a final summary of what it accomplished, using only the information it has gathered so far.
     model: "openrouter/free",
     messages: [
       ...messages,
