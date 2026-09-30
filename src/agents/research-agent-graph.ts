@@ -7,8 +7,6 @@ import { HumanMessage, SystemMessage, AIMessage } from "@langchain/core/messages
 import { ChatOpenAI } from "@langchain/openai";
 import { StateGraph, MessagesAnnotation, START, END } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
-import process = require("node:process");
-import { log } from "node:console";
 
 const tvly = tavily({
   apiKey: process.env.TAVILY_API_KEY,
@@ -66,7 +64,7 @@ const graph = new StateGraph(MessagesAnnotation)
 .compile();
 
 async function runResearchAgent(goal: string): Promise<string> {
-  const intialMessages = [
+  const initialMessages = [
     new SystemMessage(
       "You are a research agent. Use the web_search tool as many times as needed " +
         "to gather enough information to answer the user's research goal thoroughly. " +
@@ -76,18 +74,62 @@ async function runResearchAgent(goal: string): Promise<string> {
     new HumanMessage(goal),
   ];
 
+  let fullReply = "";
+
   try {
-    const result = await graph.invoke(
-      { messages: intialMessages },
-      { recursionLimit: 12 }
+    const result = await graph.stream(
+      { messages: initialMessages },
+      { recursionLimit: 12, streamMode: "messages" },
     );
 
-    const finalMessage = result.messages[result.messages.length - 1];
+    for await(const[messageChunk, metadata] of result){
+      if (metadata.langgraph_node === "agent" && messageChunk.content){
+        const piece = messageChunk.content as string;
+        process.stdout.write(piece);
+        fullReply = fullReply + piece;
+      }
+    }
     console.log("\n👻 Agent finished.\n");
 
-    return (finalMessage?.content as string) ?? ("no final answer produced");
+    return fullReply ?? "(no final answer produced)";
   } catch (error: any) {
     console.log("\n🦿 Hit step limit, forcing a final answer...\n");
+
+    const fallbackResponse = await model.stream([
+      ...initialMessages,
+      new HumanMessage(
+        "You have reached the maximum research steps. " +
+          "Do not search again. Using only the information gathered so far, " +
+          "provide the best possible final answer to the original research goal. " +
+          "Clearly mention any limitations or missing information.",
+      ),
+    ]);
+    let fallbackReply = "";
+    for await(const chunk of fallbackResponse) {
+      const piece = (chunk.content as string) ?? "";
+      process.stdout.write(piece);
+      fallbackReply = fallbackReply + piece;
+    }
+    console.log("\n");
+    return fallbackReply || "(no final answer produced)";
   }
 }
+
+async function main() {
+  const r1 = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const goal = await r1.question("What should the research agent look into?\n");
+
+  r1.close();
+
+  const result = await runResearchAgent(goal);
+
+  console.log("\n=== FINAL SUMMARY ===\n");
+  console.log(result);
+}
+
+main();
 
