@@ -102,7 +102,7 @@ async function runResearchAgent(goal: string): Promise<string> { // Function to 
       { recursionLimit: 12, streamMode: "messages" },
     );
 
-    for await(const[messageChunk, metadata] of result){ // Iterate over the streamed results from the graph execution
+    for await(const[messageChunk, metadata] of result){ // Iterate over the streamed results from the graph execution. messageChunk contains the content of the message, and metadata contains information about the node that produced the message.
       if (metadata.langgraph_node === "agent" && messageChunk.content){ // perform this check to ensure that the messageChunk is from the agent node and has content
         const piece = messageChunk.content as string;
         process.stdout.write(piece);
