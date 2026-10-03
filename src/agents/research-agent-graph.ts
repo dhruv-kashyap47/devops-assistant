@@ -5,16 +5,17 @@ import { z } from "zod";
 import { tool } from "@langchain/core/tools";
 import { HumanMessage, SystemMessage, AIMessage } from "@langchain/core/messages"
 import { ChatOpenAI } from "@langchain/openai";
-import { StateGraph, MessagesAnnotation, START, END } from "@langchain/langgraph";
+import { StateGraph, MessagesAnnotation, START, END, MemorySaver } from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
 
 const tvly = tavily({ // Initialize Tavily client
   apiKey: process.env.TAVILY_API_KEY,
 });
 
-const model = new ChatOpenAI({ // Initialize OpenAI model
+const model = new ChatOpenAI({
+  // Initialize OpenAI model
   apiKey: process.env.OPENROUTER_API_KEY,
-  model: "openrouter/free",
+  model: "stealth/space-bunny-alpha",
   configuration: {
     baseURL: "https://openrouter.ai/api/v1",
   },
@@ -76,6 +77,8 @@ function routeAfterTools(state: typeof MessagesAnnotation.State): "retry_hint" |
   return "agent";
 }
 
+const checkpointer = new MemorySaver();
+
 const graph = new StateGraph(MessagesAnnotation)
 .addNode("agent", callModel)
 .addNode("tools", toolNode)
@@ -84,7 +87,7 @@ const graph = new StateGraph(MessagesAnnotation)
 .addConditionalEdges("agent", routeAfterAgent)
 .addConditionalEdges("tools", routeAfterTools)
 .addEdge("retry_hint", "agent")
-.compile();
+.compile({ checkpointer });
 
 /*
 Complete guide to create a StateGraph -
@@ -105,27 +108,40 @@ and edge is basically a connection between two nodes in the graph, indicating th
 so in general the workflow is like this - the graph starts at the START node, which leads to the "agent" node. The "agent" node processes the conversation and generates a response. If the response indicates that a tool call is needed (e.g., a web search), the graph will transition to the "tools" node, where the web search tool is invoked. After the tool call, the graph returns to the "agent" node to continue processing the conversation. This cycle continues until the conversation reaches a conclusion or a predefined limit is reached.
 */
 
-async function runResearchAgent(goal: string): Promise<string> { // Function to run the research agent with a given research goal
-  const initialMessages = [ // Define the initial messages for the research agent, this will get stored in the state and passed to the model for processing
-    new SystemMessage(
-      "You are a research agent. Use the web_search tool as many times as needed " +
-        "to gather enough information to answer the user's research goal thoroughly. " +
-        "Once you have enough information, stop searching and give a clear, well-organized " +
-        "final summary with the key facts and sources.",
-    ),
-    new HumanMessage(goal),
-  ];
+async function runResearchAgent(goal: string, threadId: string): Promise<string> {
+
+  const newMessages = [];
+
+  const existingState = await graph.getState({ configurable: { thread_id: threadId }});
+
+  if (!existingState.values.messages || existingState.values.messages.length === 0) {
+    newMessages.push(
+      new SystemMessage(
+        "You are a research agent. Use the web_search tool as many times as needed " +
+          "to gather enough information to answer the user's research goal thoroughly. " +
+          "Once you have enough information, stop searching and give a clear, well-organized " +
+          "final summary with the key facts and sources.",
+      ),
+    );
+  }
+
+  newMessages.push(new HumanMessage(goal));
 
   let fullReply = "";
 
   try {
     const result = await graph.stream(
-      { messages: initialMessages },
-      { recursionLimit: 12, streamMode: "messages" },
+      { messages: newMessages },
+
+      { recursionLimit: 12,
+        streamMode: "messages",
+        configurable: { thread_id: threadId }
+      },
+
     );
 
-    for await(const[messageChunk, metadata] of result){ // Iterate over the streamed results from the graph execution. messageChunk contains the content of the message, and metadata contains information about the node that produced the message.
-      if (metadata.langgraph_node === "agent" && messageChunk.content){ // perform this check to ensure that the messageChunk is from the agent node and has content
+    for await(const[messageChunk, metadata] of result){
+      if (metadata.langgraph_node === "agent" && messageChunk.content){
         const piece = messageChunk.content as string;
         process.stdout.write(piece);
         fullReply = fullReply + piece;
@@ -137,8 +153,8 @@ async function runResearchAgent(goal: string): Promise<string> { // Function to 
   } catch (error: any) {
     console.log("\n🦿 Hit step limit, forcing a final answer...\n");
 
-    const fallbackResponse = await model.stream([ // If the graph execution hits the recursion limit, call the model directly to produce a final answer
-      ...initialMessages, // Pass the initial messages to the model
+    const fallbackResponse = await model.stream([
+      ...newMessages,
       new HumanMessage(
         "You have reached the maximum research steps. " +
           "Do not search again. Using only the information gathered so far, " +
@@ -163,14 +179,21 @@ async function main() {
     output: process.stdout,
   });
 
-  const goal = await r1.question("What should the research agent look into?\n");
+  const threadId = "demo-thread-1";
+  console.log("Research agent with memory. Type 'exit' to quit.\n");
 
-  r1.close();
+  while (true) {
+    const goal = await r1.question("You: ");
 
-  const result = await runResearchAgent(goal);
+    if(goal.trim().toLowerCase() === "exit") {
+      r1.close();
+      break;
+    }
 
-  console.log("\n=== FINAL SUMMARY ===\n");
-  console.log(result);
+    const result = await runResearchAgent(goal, threadId);
+    console.log("\n=== SUMMARY ===\n");
+    console.log(result, "\n");
+  }
 }
 
 main();
