@@ -1,14 +1,25 @@
+import {
+  AIMessage,
+  HumanMessage,
+  SystemMessage,
+} from "@langchain/core/messages";
+import { tool } from "@langchain/core/tools";
+import {
+  END,
+  MemorySaver,
+  MessagesAnnotation,
+  START,
+  StateGraph,
+} from "@langchain/langgraph";
+import { ToolNode } from "@langchain/langgraph/prebuilt";
+import { ChatOpenAI } from "@langchain/openai";
 import { tavily } from "@tavily/core";
 import "dotenv/config";
 import { createInterface } from "node:readline/promises";
 import { z } from "zod";
-import { tool } from "@langchain/core/tools";
-import { HumanMessage, SystemMessage, AIMessage } from "@langchain/core/messages"
-import { ChatOpenAI } from "@langchain/openai";
-import { StateGraph, MessagesAnnotation, START, END, MemorySaver } from "@langchain/langgraph";
-import { ToolNode } from "@langchain/langgraph/prebuilt";
 
-const tvly = tavily({ // Initialize Tavily client
+const tvly = tavily({
+  // Initialize Tavily client
   apiKey: process.env.TAVILY_API_KEY,
 });
 
@@ -21,11 +32,14 @@ const model = new ChatOpenAI({
   },
 });
 
-const webSearchTool = tool( // Define a web search tool
+const webSearchTool = tool(
+  // Define a web search tool
   async ({ query }) => {
     const response = await tvly.search(query, { maxResults: 5 });
 
-    return response.results.map((r) => `- ${r.title}\n  ${r.content}\n  Source: ${r.url}`).join("\n\n"); // Format the search results
+    return response.results
+      .map((r) => `- ${r.title}\n  ${r.content}\n  Source: ${r.url}`)
+      .join("\n\n"); // Format the search results
   },
   {
     name: "web_search", // Name of the tool
@@ -38,7 +52,8 @@ const webSearchTool = tool( // Define a web search tool
 
 const modelWithTools = model.bindTools([webSearchTool]); // Bind the web search tool to the model
 
-async function callModel(state: typeof MessagesAnnotation.State) { // Function to call the model with the current state
+async function callModel(state: typeof MessagesAnnotation.State) {
+  // Function to call the model with the current state
   const response = await modelWithTools.invoke(state.messages); // Invoke the model with the current messages
 
   return { messages: [response] }; // Return the model's response as a new message
@@ -57,7 +72,9 @@ async function retryHintNode(state: typeof MessagesAnnotation.State) {
   };
 }
 
-function routeAfterAgent(state: typeof MessagesAnnotation.State): "tools" | typeof END {
+function routeAfterAgent(
+  state: typeof MessagesAnnotation.State,
+): "tools" | typeof END {
   // Function to determine the next node in the state graph after the agent node
   const lastMessage = state.messages[state.messages.length - 1] as AIMessage; // Get the last message from the state, which should be an AIMessage
 
@@ -68,10 +85,12 @@ function routeAfterAgent(state: typeof MessagesAnnotation.State): "tools" | type
   return END;
 }
 
-function routeAfterTools(state: typeof MessagesAnnotation.State): "retry_hint" | "agent" {
-  const lastMessage = state.messages[state.messages.length-1];
+function routeAfterTools(
+  state: typeof MessagesAnnotation.State,
+): "retry_hint" | "agent" {
+  const lastMessage = state.messages[state.messages.length - 1];
   const content = (lastMessage?.content as string) ?? "";
-  if (content.trim().length < 60){
+  if (content.trim().length < 60) {
     return "retry_hint";
   }
   return "agent";
@@ -80,14 +99,14 @@ function routeAfterTools(state: typeof MessagesAnnotation.State): "retry_hint" |
 const checkpointer = new MemorySaver();
 
 const graph = new StateGraph(MessagesAnnotation)
-.addNode("agent", callModel)
-.addNode("tools", toolNode)
-.addNode("retry_hint", retryHintNode)
-.addEdge(START, "agent")
-.addConditionalEdges("agent", routeAfterAgent)
-.addConditionalEdges("tools", routeAfterTools)
-.addEdge("retry_hint", "agent")
-.compile({ checkpointer });
+  .addNode("agent", callModel)
+  .addNode("tools", toolNode)
+  .addNode("retry_hint", retryHintNode)
+  .addEdge(START, "agent")
+  .addConditionalEdges("agent", routeAfterAgent)
+  .addConditionalEdges("tools", routeAfterTools)
+  .addEdge("retry_hint", "agent")
+  .compile({ checkpointer });
 
 /*
 Complete guide to create a StateGraph -
@@ -108,13 +127,18 @@ and edge is basically a connection between two nodes in the graph, indicating th
 so in general the workflow is like this - the graph starts at the START node, which leads to the "agent" node. The "agent" node processes the conversation and generates a response. If the response indicates that a tool call is needed (e.g., a web search), the graph will transition to the "tools" node, where the web search tool is invoked. After the tool call, the graph returns to the "agent" node to continue processing the conversation. This cycle continues until the conversation reaches a conclusion or a predefined limit is reached.
 */
 
-async function runResearchAgent(goal: string, threadId: string): Promise<string> {
-
+async function runResearchAgent(
+  goal: string,
+  threadId: string,
+): Promise<string> {
   const newMessages = [];
 
-  const existingState = await graph.getState({ configurable: { thread_id: threadId }});
+  const existingState = await graph.getState({ configurable: { thread_id: threadId },}); // basically this is fetching the current state of the conversation for the given threadId. The state includes all messages exchanged so far in that thread, allowing the agent to maintain context and continuity in the conversation.
 
-  if (!existingState.values.messages || existingState.values.messages.length === 0) {
+  if (
+    !existingState.values.messages ||
+    existingState.values.messages.length === 0
+  ) {
     newMessages.push(
       new SystemMessage(
         "You are a research agent. Use the web_search tool as many times as needed " +
@@ -133,15 +157,15 @@ async function runResearchAgent(goal: string, threadId: string): Promise<string>
     const result = await graph.stream(
       { messages: newMessages },
 
-      { recursionLimit: 12,
+      {
+        recursionLimit: 12,
         streamMode: "messages",
-        configurable: { thread_id: threadId }
+        configurable: { thread_id: threadId },
       },
-
     );
 
-    for await(const[messageChunk, metadata] of result){
-      if (metadata.langgraph_node === "agent" && messageChunk.content){
+    for await (const [messageChunk, metadata] of result) {
+      if (metadata.langgraph_node === "agent" && messageChunk.content) {
         const piece = messageChunk.content as string;
         process.stdout.write(piece);
         fullReply = fullReply + piece;
@@ -149,9 +173,12 @@ async function runResearchAgent(goal: string, threadId: string): Promise<string>
     }
     console.log("\n👻 Agent finished.\n");
 
-    return fullReply ?? "(no final answer produced)";
+    return fullReply || "(no final answer produced)";
   } catch (error: any) {
     console.log("\n🦿 Hit step limit, forcing a final answer...\n");
+
+    const fullState = await graph.getState({ configurable: { thread_id: threadId }, });
+    const fullHistory = fullState.values.messages ?? [];
 
     const fallbackResponse = await model.stream([
       ...newMessages,
@@ -163,7 +190,7 @@ async function runResearchAgent(goal: string, threadId: string): Promise<string>
       ),
     ]);
     let fallbackReply = "";
-    for await(const chunk of fallbackResponse) {
+    for await (const chunk of fallbackResponse) {
       const piece = (chunk.content as string) ?? "";
       process.stdout.write(piece);
       fallbackReply = fallbackReply + piece;
@@ -185,7 +212,7 @@ async function main() {
   while (true) {
     const goal = await r1.question("You: ");
 
-    if(goal.trim().toLowerCase() === "exit") {
+    if (goal.trim().toLowerCase() === "exit") {
       r1.close();
       break;
     }
@@ -197,4 +224,3 @@ async function main() {
 }
 
 main();
-
