@@ -45,6 +45,17 @@ async function callModel(state: typeof MessagesAnnotation.State) { // Function t
 
 const toolNode = new ToolNode([webSearchTool]); // Create a tool node for the web search tool
 
+async function retryHintNode(state: typeof MessagesAnnotation.State) {
+  return {
+    messages: [
+      new SystemMessage(
+        "The last search returned little or no useful information. " +
+          "Try a more specific, differently worded, or narrower search query.",
+      ),
+    ],
+  };
+}
+
 function routeAfterAgent(state: typeof MessagesAnnotation.State): "tools" | typeof END {
   // Function to determine the next node in the state graph after the agent node
   const lastMessage = state.messages[state.messages.length - 1] as AIMessage; // Get the last message from the state, which should be an AIMessage
@@ -56,12 +67,23 @@ function routeAfterAgent(state: typeof MessagesAnnotation.State): "tools" | type
   return END;
 }
 
+function routeAfterTools(state: typeof MessagesAnnotation.State): "retry_hint" | "agent" {
+  const lastMessage = state.messages[state.messages.length-1];
+  const content = (lastMessage?.content as string) ?? "";
+  if (content.trim().length < 60){
+    return "retry_hint";
+  }
+  return "agent";
+}
+
 const graph = new StateGraph(MessagesAnnotation)
 .addNode("agent", callModel)
 .addNode("tools", toolNode)
+.addNode("retry_hint", retryHintNode)
 .addEdge(START, "agent")
 .addConditionalEdges("agent", routeAfterAgent)
-.addEdge("tools", "agent")
+.addConditionalEdges("tools", routeAfterTools)
+.addEdge("retry_hint", "agent")
 .compile();
 
 /*
