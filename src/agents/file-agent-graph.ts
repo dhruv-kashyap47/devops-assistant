@@ -8,6 +8,8 @@ import { HumanMessage, AIMessage, SystemMessage } from "@langchain/core/messages
 import { ChatOpenAI } from "@langchain/openai";
 import {StateGraph, MessagesAnnotation, START, END, MemorySaver,} from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
+import console = require("node:console");
+import nodeWorker_threads = require("node:worker_threads");
 
 const WORKSPACE_DIR = path.resolve("workspace");
 
@@ -113,6 +115,90 @@ async function runFileAgent(goal: string, threadId: string): Promise<string> {
   const newMessages: InputMessage[] = []; // start it off empty
 
   const existingState = await graph.getState({
-    configurable: { thread_id: threadId},
+    configurable: { thread_id: threadId }, // IDcard of a specific conversation
   });
+
+  if (!existingState.values.messages || existingState.values.messages.length === 0){
+    newMessages.push(
+      new SystemMessage(
+        "You are a file operations agent. You can list, read, and write files, " +
+          "but ONLY inside the workspace folder. Use tools as needed to accomplish " +
+          "the user's goal, then give a clear final summary of what you did.",
+      ),
+    );
+  }
+
+  newMessages.push(new HumanMessage(goal));
+
+  let fullReply = "";
+
+  try{
+    const result = await graph.stream( // feed into graph
+      { messages: newMessages }, // input
+      {
+        recursionLimit:12,
+        streamMode: "messages",
+        configurable: { thread_id: threadId } // Loads + saves the right conversation's state
+      } // options
+    );
+
+    for await (const [messageChunck, metadata] of result) {
+      if (metadata.langgraph_node === "agent" && messageChunck.content){
+        const piece = messageChunck.content as string;
+        process.stdout.write(piece);
+        fullReply += piece;
+      }
+    }
+    console.log("\n\n🦾 Agent finished.\n");
+    return fullReply || "(no final answer produced)";
+  }catch (error: any){
+  console.log("\n 🦾 Hit step limit, forcing a final answer...\n");
+  }
+  const fullState = await graph.getState({configurable: { thread_id: threadId }, });
+  const fullHistory = fullState.values.messages ?? [];
+
+  const fallbackResponse = await model.stream([
+    ...fullHistory,
+    new HumanMessage(
+      "You have reached the maximum number of steps. Do not call any more tools. " +
+        "Using only what you've already done and observed so far, give the best " +
+        "possible final summary. Clearly mention anything left incomplete.",
+    ),
+  ]);
+
+  let fallbackReply = "";
+  for await (const chunk of fallbackResponse) {
+    const piece = (chunk.content as string) ?? "";
+    process.stdout.write(piece);
+    fallbackReply += piece;
+  }
+
+  console.log("\n");
+  return fallbackReply || "(no final answer produced)";
 }
+
+async function main() {
+  await fs.mkdir(WORKSPACE_DIR, { recursive: true });
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const threadId = "file-agent-thread-1";
+
+  console.log(
+    "File ops agent (LangGraph, with memory). Type 'exit' to quit.\n",
+  );
+
+  while (true) {
+    const goal = await rl.question("You: ");
+
+    if (goal.trim().toLowerCase() === "exit") {
+      rl.close();
+      break;
+    }
+
+    const result = await runFileAgent(goal, threadId);
+    console.log("\n=== SUMMARY ===\n");
+    console.log(result, "\n");
+  }
+}
+
+main();
