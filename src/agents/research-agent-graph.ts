@@ -26,7 +26,7 @@ const tvly = tavily({
 const model = new ChatOpenAI({
   // Initialize OpenAI model
   apiKey: process.env.OPENROUTER_API_KEY,
-  model: "stealth/space-bunny-alpha",
+  model: "apodex/apodex-1.1-mini:free",
   configuration: {
     baseURL: "https://openrouter.ai/api/v1",
   },
@@ -127,12 +127,20 @@ and edge is basically a connection between two nodes in the graph, indicating th
 so in general the workflow is like this - the graph starts at the START node, which leads to the "agent" node. The "agent" node processes the conversation and generates a response. If the response indicates that a tool call is needed (e.g., a web search), the graph will transition to the "tools" node, where the web search tool is invoked. After the tool call, the graph returns to the "agent" node to continue processing the conversation. This cycle continues until the conversation reaches a conclusion or a predefined limit is reached.
 */
 
-async function runResearchAgent(goal: string, threadId: string,): Promise<string> {
+async function runResearchAgent(
+  goal: string,
+  threadId: string,
+): Promise<string> {
   const newMessages = [];
 
-  const existingState = await graph.getState({ configurable: { thread_id: threadId },}); // basically this is fetching the current state of the conversation for the given threadId. The state includes all messages exchanged so far in that thread, allowing the agent to maintain context and continuity in the conversation.
+  const existingState = await graph.getState({
+    configurable: { thread_id: threadId },
+  }); // basically this is fetching the current state of the conversation for the given threadId. The state includes all messages exchanged so far in that thread, allowing the agent to maintain context and continuity in the conversation.
 
-  if (!existingState.values.messages || existingState.values.messages.length === 0) {
+  if (
+    !existingState.values.messages ||
+    existingState.values.messages.length === 0
+  ) {
     newMessages.push(
       new SystemMessage(
         "You are a research agent. Use the web_search tool as many times as needed " +
@@ -171,7 +179,9 @@ async function runResearchAgent(goal: string, threadId: string,): Promise<string
   } catch (error: any) {
     console.log("\n🦿 Hit step limit, forcing a final answer...\n");
 
-    const fullState = await graph.getState({ configurable: { thread_id: threadId }, });
+    const fullState = await graph.getState({
+      configurable: { thread_id: threadId },
+    });
     const fullHistory = fullState.values.messages ?? [];
 
     const fallbackResponse = await model.stream([

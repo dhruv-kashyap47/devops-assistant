@@ -8,8 +8,7 @@ import { HumanMessage, AIMessage, SystemMessage } from "@langchain/core/messages
 import { ChatOpenAI } from "@langchain/openai";
 import {StateGraph, MessagesAnnotation, START, END, MemorySaver,} from "@langchain/langgraph";
 import { ToolNode } from "@langchain/langgraph/prebuilt";
-import console = require("node:console");
-import nodeWorker_threads = require("node:worker_threads");
+
 
 const WORKSPACE_DIR = path.resolve("workspace");
 
@@ -23,7 +22,7 @@ function resolveSafePath(userPath : string): string {
 
 const model = new ChatOpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
-  model: "stealth/space-bunny-alpha",
+  model: "apodex/apodex-1.1-mini:free",
   configuration: {
     baseURL: "https://openrouter.ai/api/v1",
   },
